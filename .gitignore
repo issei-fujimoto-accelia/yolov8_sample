@@ -1,0 +1,3 @@
+.yolov8/
+models/__pycache__/
+weights/
