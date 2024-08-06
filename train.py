@@ -17,7 +17,7 @@ def main():
     data=args.train_config_path, 
     epochs=100, 
     imgsz=640,
-    save_dir=args.save_dir
+    project=args.save_dir
     )
   print(results)
 
