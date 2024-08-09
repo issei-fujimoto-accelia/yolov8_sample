@@ -1,4 +1,5 @@
 .yolov8/
 models/__pycache__/
-weights/
+weights/*
+!weights/.gitkeep
 dataset
