@@ -1,10 +1,11 @@
 import math
 import time
+import os
 import cv2
 import numpy as np
 import onnxruntime
 
-from models.utils import xywh2xyxy, nms, draw_detections, sigmoid, draw_masks
+from models.utils import xywh2xyxy, nms, draw_detections, sigmoid, draw_masks, draw_dots
 
 
 class YOLOSeg:
@@ -20,13 +21,35 @@ class YOLOSeg:
     def __call__(self, image):
         return self.segment_objects(image)
 
+    def _open_onnx_model(self, ckpt: str, providers) -> onnxruntime.InferenceSession:
+        options = onnxruntime.SessionOptions()
+        # print(onnxruntime.get_all_providers())
+        # options.log_severity_level=1
+        options.log_severity_level=2 # default
+        options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+        if "CPUExecutionProvider" in providers:
+            options.intra_op_num_threads = os.cpu_count()
+
+        print(f'Model {ckpt!r} loaded with provider {providers!r}')
+        return onnxruntime.InferenceSession(ckpt, options, providers)
+
     def initialize_model(self, path):
-        self.session = onnxruntime.InferenceSession(path,
-                                                    providers=['CUDAExecutionProvider',
-                                                               'CPUExecutionProvider'])
+        providers=['CUDAExecutionProvider','CPUExecutionProvider']
+        # providers=['CUDAExecutionProvider']
+        # self.session = onnxruntime.InferenceSession(path,
+        #                                             providers=providers)
+        self.session = self._open_onnx_model(path, providers)
+        
         # Get model info
         self.get_input_details()
         self.get_output_details()
+
+    def debug(self, image):
+        input_tensor = self.prepare_input(image)
+        outputs = self.inference(input_tensor)
+        self.boxes, self.scores, self.class_ids, mask_pred = self.process_box_output(outputs[0])
+        print("out", outputs[1].shape)
+        print("pre", mask_pred.shape)
 
     def segment_objects(self, image):
         input_tensor = self.prepare_input(image)
@@ -162,6 +185,11 @@ class YOLOSeg:
 
     def draw_masks_only(self, image, mask_alpha=0.5):
         return draw_masks(image, self.boxes,self.class_ids, mask_alpha, mask_maps=self.mask_maps)
+    
+
+    def draw_dots(self, image, rad=10):
+        return draw_dots(image, self.boxes, mask_maps=self.mask_maps, rad=rad)
+ 
 
     def get_input_details(self):
         model_inputs = self.session.get_inputs()
