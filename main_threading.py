@@ -1,15 +1,17 @@
 import cv2
 import threading
 import queue
-
+import time
+import numpy as np
 # from models.yolo import YOLOv8Seg
 from models.yoloSeg import YOLOSeg
 import argparse
 
 class InferenceWorker(threading.Thread):
-    def __init__(self, model, input_queue, output_queue):
+    def __init__(self, model, input_queue, output_queue, hide_bg=False):
         threading.Thread.__init__(self)
         self.model = model
+        self.hide_bg = False
         self.input_queue = input_queue
         self.output_queue = output_queue
         self.stop_event = threading.Event()
@@ -19,7 +21,15 @@ class InferenceWorker(threading.Thread):
             if not self.input_queue.empty():
                 frame = self.input_queue.get()
                 boxes, scores, class_ids, masks = self.model(frame)
-                combined_img = self.model.draw_masks_only(frame.copy())  # modelにdraw_masks_only関数がある前提
+
+                if self.hide_bg:
+                    (hight, width, _) = frame.shape
+                    blank_frame = np.full((hight, width, 3), 0, np.unit8) ## 黒
+                    # blank_frame = np.full((hight, width, 3), 255, np.unit8) ## 白
+                    combined_img = self.model.draw_masks_only(blank_frame)
+                else:
+                    combined_img = self.model.draw_masks_only(frame.copy())
+
                 self.output_queue.put(combined_img)
             else:
                 # 少し待つ
@@ -30,22 +40,33 @@ class InferenceWorker(threading.Thread):
 
 def main():
     parser = argparse.ArgumentParser()
-    # parser.add_argument("--model", type=str, required=True, help="Path to ONNX model")
+    parser.add_argument("--model", type=str, required=True, help="Path to ONNX model")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
-    args = parser.parse_args()
+    # parser.add_argument("--width", type=int, default=1280, help="width")
+    # parser.add_argument("--height", type=int, default=720, help="height")
+    parser.add_argument("--width", type=int, default=1920, help="width")
+    parser.add_argument("--height", type=int, default=1080, help="height")
+    parser.add_argument("--hide_background", action="store_true")
 
+    args = parser.parse_args()
+    
     # Initialize the webcam
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(2)
+    cap.set(cv2.CAP_PROP_FPS, 10)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
+    
 
     # Initialize YOLOv5 Instance Segmentator
-    model_path = "./weights/yolov8s-seg.onnx"
+    # model_path = "./weights/yolov8s-seg.onnx"
+    model_path = args.model
     yoloseg = YOLOSeg(model_path, conf_threshold=args.conf, iou_threshold=args.iou)
 
     # キューとスレッドの初期化
     input_queue = queue.Queue(maxsize=1)  # 入力キュー
     output_queue = queue.Queue(maxsize=1)  # 出力キュー
-    inference_worker = InferenceWorker(yoloseg, input_queue, output_queue)
+    inference_worker = InferenceWorker(yoloseg, input_queue, output_queue, hide_bg=args.hide_background)
     inference_worker.start()
 
     cv2.namedWindow("Detected Objects", cv2.WINDOW_NORMAL)
@@ -62,8 +83,12 @@ def main():
             input_queue.put(frame)
 
         # 結果があれば表示
+        if output_queue.empty():
+            resized_frame = cv2.resize(frame, (args.width, args.height))
+            cv2.imshow("Detected Objects", resized_frame)
         if not output_queue.empty():
             combined_img = output_queue.get()
+            combined_img = cv2.resize(combined_img, (args.width, args.height))
             cv2.imshow("Detected Objects", combined_img)
 
         # Press key q to stop

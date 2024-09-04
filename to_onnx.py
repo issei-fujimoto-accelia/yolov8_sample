@@ -1,6 +1,7 @@
 from ultralytics import YOLO
 
 model_path = "./weights/yolov8s-seg.pt"
+model_path = "./weights/yolov8_seg_turnip.pt"
 
 # convert to ONNX model
 model = YOLO(model_path)
