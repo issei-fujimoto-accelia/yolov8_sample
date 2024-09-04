@@ -3,6 +3,7 @@ import time
 import cv2
 import numpy as np
 import onnxruntime
+import torch
 
 from models.utils import xywh2xyxy, nms, draw_detections, sigmoid, draw_masks
 
@@ -131,6 +132,61 @@ class YOLOSeg:
             mask_maps[i, y1:y2, x1:x2] = crop_mask
 
         return mask_maps
+
+    def process_mask_output_gpu(self, mask_predictions, mask_output):
+        """
+        Process mask predictions and output.
+
+        Args:
+            mask_predictions (torch.Tensor): Mask predictions tensor (on GPU).
+            mask_output (torch.Tensor): Mask output tensor (on GPU).
+
+        Returns:
+            torch.Tensor: Processed mask maps on GPU.
+        """
+        if mask_predictions.shape[0] == 0:
+            return []
+
+        mask_predictions = torch.from_numpy(mask_predictions).cuda()
+        mask_output = torch.from_numpy(mask_output).cuda()
+        mask_output = torch.squeeze(mask_output)
+        # Calculate the mask maps for each box
+        num_mask, mask_height, mask_width = mask_output.shape  # CHW
+        masks = torch.sigmoid(mask_predictions @ mask_output.reshape((num_mask, -1)))
+        masks = masks.reshape((-1, mask_height, mask_width))
+
+        # Downscale the boxes to match the mask size
+        scale_boxes = self.rescale_boxes(self.boxes,
+                                    (self.img_height, self.img_width),
+                                    (mask_height, mask_width))
+
+        # For every box/mask pair, get the mask map
+        mask_maps = torch.zeros((len(scale_boxes), self.img_height, self.img_width)).cuda()
+        blur_size = (int(self.img_width / mask_width), int(self.img_height / mask_height))
+        for i in range(len(scale_boxes)):
+
+            scale_x1 = int(math.floor(scale_boxes[i][0]))
+            scale_y1 = int(math.floor(scale_boxes[i][1]))
+            scale_x2 = int(math.ceil(scale_boxes[i][2]))
+            scale_y2 = int(math.ceil(scale_boxes[i][3]))
+
+            x1 = int(math.floor(self.boxes[i][0]))
+            y1 = int(math.floor(self.boxes[i][1]))
+            x2 = int(math.ceil(self.boxes[i][2]))
+            y2 = int(math.ceil(self.boxes[i][3]))
+
+            scale_crop_mask = masks[i, scale_y1:scale_y2, scale_x1:scale_x2].cpu().numpy()  # Move to CPU for OpenCV
+            crop_mask = cv2.resize(scale_crop_mask,
+                                (x2 - x1, y2 - y1),
+                                interpolation=cv2.INTER_CUBIC)
+
+            crop_mask = cv2.blur(crop_mask, blur_size)
+
+            crop_mask = (crop_mask > 0.5).astype(np.uint8)
+            mask_maps[i, y1:y2, x1:x2] = torch.from_numpy(crop_mask).cuda()  # Move back to GPU
+
+        return mask_maps.cpu().numpy()  # Move result back to CPU and convert to numpy array
+
 
     def extract_boxes(self, box_predictions):
         # Extract boxes from predictions
