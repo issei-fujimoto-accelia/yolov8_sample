@@ -16,6 +16,26 @@ rng = np.random.default_rng(3)
 colors = rng.uniform(0, 255, size=(len(class_names), 3))
 
 
+COLOR_SET=dict(
+    green=(0, 255, 0),
+    red=(0, 0, 255),
+    blue=(255, 0, 0),
+    pink=(255, 0, 165),
+    puple=(128, 0, 128),
+)
+COLORS = dict(
+    small=COLOR_SET["blue"],
+    midium=COLOR_SET["red"],
+    large=COLOR_SET["puple"],
+)
+## --- size ---
+# SIZE_SMALL= 5000
+# SIZE_MIDIUM = 20000
+
+SIZE_SMALL= 500
+SIZE_MIDIUM = 1000
+## --- size ---
+
 def nms(boxes, scores, iou_threshold):
     # Sort by score
     sorted_indices = np.argsort(scores)[::-1]
@@ -118,11 +138,42 @@ def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None):
             cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, -1)
         else:
             crop_mask = mask_maps[i][y1:y2, x1:x2, np.newaxis]
+            print("m;", type(mask_maps[i]))
             crop_mask_img = mask_img[y1:y2, x1:x2]
             crop_mask_img = crop_mask_img * (1 - crop_mask) + crop_mask * color
             mask_img[y1:y2, x1:x2] = crop_mask_img
 
     return cv2.addWeighted(mask_img, mask_alpha, image, 1 - mask_alpha, 0)
+
+def get_color_by_size(size):
+    if size < SIZE_SMALL:
+        select_color = "small"
+    elif size < SIZE_MIDIUM:
+        select_color = "midium"
+    else:  
+        select_color = "large"
+    color = COLORS[select_color]
+    return color
+
+def draw_dots(image, boxes, mask_maps=None, rad=10):
+    if mask_maps is None:
+        return image
+    
+    for i, box in enumerate(boxes):        
+        x1, y1, x2, y2 = box.astype(int)
+        _x = int((x2 - x1) // 2 + x1)
+        _y = int((y2 - y1) // 2 + y1)
+        size = np.count_nonzero(mask_maps[i])
+        color = get_color_by_size(size)
+        cv2.circle(image,
+                center=(_x, _y),
+                radius=rad,
+                color=color,
+                thickness=-1,
+                lineType=cv2.LINE_4,
+                shift=0
+        )
+    return image
 
 
 def draw_comparison(img1, img2, name1, name2, fontsize=2.6, text_thickness=3):

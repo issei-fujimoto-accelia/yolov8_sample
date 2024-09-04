@@ -59,7 +59,8 @@ class YOLOSeg:
         outputs = self.inference(input_tensor)
 
         self.boxes, self.scores, self.class_ids, mask_pred = self.process_box_output(outputs[0])
-        self.mask_maps = self.process_mask_output(mask_pred, outputs[1])
+        # self.mask_maps = self.process_mask_output(mask_pred, outputs[1])
+        self.mask_maps = self.process_mask_output_gpu(mask_pred, outputs[1])
 
         return self.boxes, self.scores, self.class_ids, self.mask_maps
 
